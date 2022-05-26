@@ -57,7 +57,7 @@ def get_args_parser():
 
     # 自定义的模型加载
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--resume', default='./output_dir/checkpoint-399.pth',
+    parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
 
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
@@ -226,7 +226,7 @@ def main(args, mode='train', test_img_path=''):
 
         # 2.构建model，这里我们可以用timm的直接构建,设置一些参数
 
-        model = timm.create_model("resnet18", pretrained=False, drop_rate=0.1, drop_path_rate=0.1)
+        model = timm.create_model("resnet18", pretrained=False, num_classes=36,drop_rate=0.1, drop_path_rate=0.1)
         model.to(device)
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
         # 计算当前一共有多是个参数量
@@ -261,8 +261,8 @@ def main(args, mode='train', test_img_path=''):
                     log_writer.add_scalar('perf/test_loss', test_stats['loss'], epoch)
 
                 # 移动到训练模式
-                model.train()
-                train_stats = train_one_epoch(
+            model.train()
+            train_stats = train_one_epoch(
                     model, criterion, data_loader_train,
                     optimizer, device, epoch + 1,
                     loss_scaler, None,
@@ -271,7 +271,7 @@ def main(args, mode='train', test_img_path=''):
                 )
 
                 # save model
-                if args.output_dir:
+            if args.output_dir:
                     print("saving checkpoints....")
                     misc.save_model(
                         args=args, model=model, model_without_ddp=model,
@@ -279,9 +279,10 @@ def main(args, mode='train', test_img_path=''):
                     )
     else:
         # 走入训练模式,加载我们的模型
-        model = timm.create_model("resnet18", pretrained=False, num_classes=36,
+        model = timm.create_model("resnet18", pretrained=False,
                                   drop_rate=0.1, drop_path_rate=0.1)
         # model.to(device)
+
         classes_dir = {'apple': 0, 'banana': 1, 'beetroot': 2, 'bell pepper': 3, 'cabbage': 4, 'capsicum': 5,
                        'carrot': 6, 'cauliflower': 7, 'chilli pepper': 8, 'corn': 9, 'cucumber': 10, 'eggplant': 11,
                        'garlic': 12, 'ginger': 13, 'grapes': 14, 'jalepeno': 15, 'kiwi': 16, 'lemon': 17, 'lettuce': 18,
@@ -302,7 +303,8 @@ def main(args, mode='train', test_img_path=''):
         # 5.加载 训练的模型来预测，通过这个来获取我们pth来得到答案
         misc.load_model(args=args, model_without_ddp=model, optimizer=optimizer,
                         loss_scaler=loss_scaler)
-
+        inchannel = model.fc.in_features
+        model.fc = torch.nn.Linear(inchannel, 36)
         model.eval()
 
         # 传入要预测的模型
@@ -311,11 +313,11 @@ def main(args, mode='train', test_img_path=''):
         image = torchvision.transforms.ToTensor()(image).unsqueeze(0)
 
         # 进行推理
-        with torch.no_grad:
+        with torch.no_grad():
             output = model(image)
 
         output = torch.nn.functional.softmax(output, dim=-1)
-        class_idx = torch.argmax(output, dim=1)[0][0]
+        class_idx = torch.argmax(output, dim=1)[0]
         score = torch.max(output, dim=1)[0][0]
         print(f'image path is {test_img_path}')
         print(
@@ -329,7 +331,7 @@ if __name__ == '__main__':
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
-    mode = 'infer'
+    mode = 'train'
     if mode == 'train':
         main(args)
     else:
